@@ -11,11 +11,25 @@ async fn ingest_to_axiom(client: &Client, dataset: &String, line: &String) {
         let result = client.ingest(dataset, vec![json.ok().unwrap()]).await;
 
         if result.is_err() {
+            let error_message = match result.err() {
+                Some(axiom_error) => match axiom_error {
+                    axiom_rs::Error::Axiom(axiom_rs::error::AxiomError {
+                        message: Some(message),
+                        ..
+                    }) => message,
+                    _ => "Unknown error occurred".to_owned(),
+                },
+                _ => "Unknown error occurred".to_owned(),
+            };
+
             // If sending to Axiom fails, print a JSON stringified line indicating the failure
             println!(
                 "{}",
                 serde_json::to_string(&serde_json::json!({
-                    "error": "Failed to send to Axiom",
+                    "error": {
+                        "message": "Failed to send to Axiom"
+                    },
+                    "cause": error_message,
                     "log": &line
                 }))
                 .unwrap()
@@ -25,7 +39,20 @@ async fn ingest_to_axiom(client: &Client, dataset: &String, line: &String) {
             println!("{}", &line);
         }
     } else {
-        // If we can't parse the line just print it
+        // If parsing the JSON fails, print a JSON stringified line indicating the failure
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "error": {
+                    "message": "Failed to parse line into JSON"
+                },
+                "cause": format!("{:?}", json.err()),
+                "log": &line
+            }))
+            .unwrap()
+        );
+
+        // Then print the line itself
         println!("{}", &line);
     }
 }
@@ -42,6 +69,9 @@ async fn main() {
         .build()
         .expect("Failed to get axiom client");
 
+    // Print that we're started
+    println!("Starting to parse lines");
+
     // Get stdin
     let stdin = io::stdin();
     let handle = stdin.lock();
@@ -52,4 +82,7 @@ async fn main() {
             ingest_to_axiom(&client, &dataset, &line).await;
         }
     }
+
+    // Print that we're stopping
+    println!("Exiting process");
 }
